@@ -29,16 +29,20 @@ class Command(Enum):
     RESET_USER = os.path.join(SCRIPT_DIR, 'hysteria2', 'reset_user.sh')
     REMOVE_USER = os.path.join(SCRIPT_DIR, 'hysteria2', 'remove_user.sh')
     SHOW_USER_URI = os.path.join(SCRIPT_DIR, 'hysteria2', 'show_user_uri.sh')
+    IP_ADD = os.path.join(SCRIPT_DIR, 'hysteria2', 'ip.sh')
+    MANAGE_OBFS = os.path.join(SCRIPT_DIR, 'hysteria2', 'manage_obfs.sh')
     TRAFFIC_STATUS = 'traffic.py'  # won't be call directly (it's a python module)
     LIST_USERS = os.path.join(SCRIPT_DIR, 'hysteria2', 'list_users.sh')
     SERVER_INFO = os.path.join(SCRIPT_DIR, 'hysteria2', 'server_info.sh')
     BACKUP_HYSTERIA = os.path.join(SCRIPT_DIR, 'hysteria2', 'backup.sh')
     INSTALL_TELEGRAMBOT = os.path.join(SCRIPT_DIR, 'telegrambot', 'runbot.sh')
     INSTALL_SINGBOX = os.path.join(SCRIPT_DIR, 'singbox', 'singbox_shell.sh')
+    INSTALL_NORMALSUB = os.path.join(SCRIPT_DIR, 'normalsub', 'normalsub.sh')
     INSTALL_TCP_BRUTAL = os.path.join(SCRIPT_DIR, 'tcp-brutal', 'install.sh')
     INSTALL_WARP = os.path.join(SCRIPT_DIR, 'warp', 'install.sh')
     UNINSTALL_WARP = os.path.join(SCRIPT_DIR, 'warp', 'uninstall.sh')
     CONFIGURE_WARP = os.path.join(SCRIPT_DIR, 'warp', 'configure.sh')
+    STATUS_WARP = os.path.join(SCRIPT_DIR, 'warp', 'status.sh')
 
 
 # region utils
@@ -207,7 +211,8 @@ def remove_user(username: str):
 @click.option('--ipv', '-ip', type=click.IntRange(4, 6), default=4, help='IP version (4 or 6)')
 @click.option('--all', '-a', is_flag=True, help='Show both IPv4 and IPv6 URIs and generate QR codes for both if requested')
 @click.option('--singbox', '-s', is_flag=True, help='Generate Singbox sublink if Singbox service is active')
-def show_user_uri(username: str, qrcode: bool, ipv: int, all: bool, singbox: bool):
+@click.option('--normalsub', '-n', is_flag=True, help='Generate Normal sublink if normalsub service is active')
+def show_user_uri(username: str, qrcode: bool, ipv: int, all: bool, singbox: bool, normalsub: bool):
     command_args = ['bash', Command.SHOW_USER_URI.value, '-u', username]
     if qrcode:
         command_args.append('-qr')
@@ -217,6 +222,8 @@ def show_user_uri(username: str, qrcode: bool, ipv: int, all: bool, singbox: boo
         command_args.extend(['-ip', str(ipv)])
     if singbox:
         command_args.append('-s')
+    if normalsub:
+        command_args.append('-n')
 
     run_cmd(command_args)
 
@@ -242,6 +249,43 @@ def backup_hysteria():
         run_cmd(['bash', Command.BACKUP_HYSTERIA.value])
     except subprocess.CalledProcessError as e:
         click.echo(f"Backup failed: {e.output.decode()}", err=True)
+
+@cli.command('manage_obfs')
+@click.option('--remove', '-r', is_flag=True, help="Remove 'obfs' from config.json.")
+@click.option('--generate', '-g', is_flag=True, help="Generate new 'obfs' in config.json.")
+def manage_obfs(remove, generate):
+    """Manage 'obfs' in Hysteria2 configuration."""
+    if remove and generate:
+        click.echo("Error: You cannot use both --remove and --generate at the same time.")
+        return
+    elif remove:
+        click.echo("Removing 'obfs' from config.json...")
+        run_cmd(['bash', Command.MANAGE_OBFS.value, '--remove'])
+    elif generate:
+        click.echo("Generating 'obfs' in config.json...")
+        run_cmd(['bash', Command.MANAGE_OBFS.value, '--generate'])
+    else:
+        click.echo("Error: Please specify either --remove or --generate.")
+
+@cli.command('ip-address')
+@click.option('--edit', is_flag=True, help="Edit IP addresses manually.")
+@click.option('-4', '--ipv4', type=str, help="Specify the new IPv4 address.")
+@click.option('-6', '--ipv6', type=str, help="Specify the new IPv6 address.")
+def ip_address(edit, ipv4, ipv6):
+    """
+    Manage IP addresses in .configs.env.
+    - Use without options to add auto-detected IPs.
+    - Use --edit with -4 or -6 to manually update IPs.
+    """
+    if edit:
+        if ipv4:
+            run_cmd(['bash', Command.IP_ADD.value, 'edit', '-4', ipv4])
+        if ipv6:
+            run_cmd(['bash', Command.IP_ADD.value, 'edit', '-6', ipv6])
+        if not ipv4 and not ipv6:
+            click.echo("Error: --edit requires at least one of --ipv4 or --ipv6.")
+    else:
+        run_cmd(['bash', Command.IP_ADD.value, 'add'])
 
 # endregion
 
@@ -298,6 +342,12 @@ def configure_warp(all: bool, popular_sites: bool, domestic_sites: bool, block_a
 
     run_cmd(cmd_args)
 
+@cli.command('warp-status')
+def warp_status():
+    output = run_cmd(['bash', Command.STATUS_WARP.value])
+    if output:
+        print(output)
+
 @cli.command('telegram')
 @click.option('--action', '-a', required=True, help='Action to perform: start or stop', type=click.Choice(['start', 'stop'], case_sensitive=False))
 @click.option('--token', '-t', required=False, help='Token for running the telegram bot', type=str)
@@ -324,6 +374,19 @@ def singbox(action: str, domain: str, port: int):
         run_cmd(['bash', Command.INSTALL_SINGBOX.value, 'start', domain, str(port)])
     elif action == 'stop':
         run_cmd(['bash', Command.INSTALL_SINGBOX.value, 'stop'])
+
+@cli.command('normal-sub')
+@click.option('--action', '-a', required=True, help='Action to perform: start or stop', type=click.Choice(['start', 'stop'], case_sensitive=False))
+@click.option('--domain', '-d', required=False, help='Domain name for SSL', type=str)
+@click.option('--port', '-p', required=False, help='Port number for NormalSub service', type=int)
+def normalsub(action: str, domain: str, port: int):
+    if action == 'start':
+        if not domain or not port:
+            click.echo("Error: Both --domain and --port are required for the start action.")
+            return
+        run_cmd(['bash', Command.INSTALL_NORMALSUB.value, 'start', domain, str(port)])
+    elif action == 'stop':
+        run_cmd(['bash', Command.INSTALL_NORMALSUB.value, 'stop'])
 
 # endregion
 
